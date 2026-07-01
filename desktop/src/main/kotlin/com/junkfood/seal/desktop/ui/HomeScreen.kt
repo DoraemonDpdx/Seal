@@ -35,17 +35,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.junkfood.seal.desktop.data.DesktopSettings
+import com.junkfood.seal.desktop.data.HistoryEntry
 import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
 import com.junkfood.seal.desktop.download.YtDlpDownloader
 import java.io.File
 import kotlinx.coroutines.launch
 
-private val defaultOutputDir = File(System.getProperty("user.home"), "Downloads/Seal")
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen() {
+fun HomeScreen(
+    settings: DesktopSettings,
+    onOpenVideoList: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onDownloadCompleted: (HistoryEntry) -> Unit,
+) {
     val downloader = remember { YtDlpDownloader() }
     val scope = rememberCoroutineScope()
     val tasks = remember { mutableStateListOf<DownloadTask>() }
@@ -60,9 +65,20 @@ fun HomeScreen() {
                 val taskId = nextId++
                 tasks.add(0, DownloadTask(id = taskId, url = url))
                 scope.launch {
-                    downloader.download(url, defaultOutputDir).collect { state ->
+                    val outputDir = File(settings.downloadDirectory)
+                    downloader.download(url, outputDir).collect { state ->
                         val index = tasks.indexOfFirst { it.id == taskId }
                         if (index >= 0) tasks[index] = tasks[index].copy(state = state)
+                        if (state is DownloadState.Completed) {
+                            onDownloadCompleted(
+                                HistoryEntry(
+                                    id = taskId,
+                                    title = state.title ?: url,
+                                    url = url,
+                                    filePath = state.filePath,
+                                )
+                            )
+                        }
                     }
                 }
             },
@@ -74,13 +90,13 @@ fun HomeScreen() {
             TopAppBar(
                 title = { Text("Seal") },
                 navigationIcon = {
-                    IconButton(onClick = {}) {
-                        Icon(Icons.Outlined.Menu, contentDescription = null)
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Outlined.Menu, contentDescription = "Settings")
                     }
                 },
                 actions = {
-                    IconButton(onClick = {}) {
-                        Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null)
+                    IconButton(onClick = onOpenVideoList) {
+                        Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "Downloads")
                     }
                     IconButton(onClick = {}) {
                         Icon(Icons.Outlined.MoreVert, contentDescription = null)
