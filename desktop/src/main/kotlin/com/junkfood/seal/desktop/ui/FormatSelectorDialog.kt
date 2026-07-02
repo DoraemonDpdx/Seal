@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -52,6 +53,7 @@ fun FormatSelectorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.width(640.dp),
         title = { Text(videoInfo?.title?.takeIf { it.isNotBlank() } ?: "Select formats") },
         text = {
             when {
@@ -80,7 +82,7 @@ fun FormatSelectorDialog(
                     val audioFormats = formats.filter { it.hasAudio && !it.hasVideo }
 
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth().height(400.dp),
+                        modifier = Modifier.fillMaxWidth().height(440.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (videoFormats.isNotEmpty()) {

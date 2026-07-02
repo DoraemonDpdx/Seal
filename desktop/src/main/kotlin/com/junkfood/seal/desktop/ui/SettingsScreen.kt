@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -58,12 +60,16 @@ fun SettingsScreen(
             )
         }
     ) { padding: PaddingValues ->
+        // Cap the content width and center it, so settings don't stretch edge-to-edge on a
+        // desktop-sized window.
         Column(
             modifier =
                 Modifier.fillMaxSize()
                     .padding(padding)
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp)
+                    .wrapContentWidth()
+                    .widthIn(max = 720.dp)
         ) {
             Text(text = "Download directory", style = MaterialTheme.typography.titleSmall)
             Row(
