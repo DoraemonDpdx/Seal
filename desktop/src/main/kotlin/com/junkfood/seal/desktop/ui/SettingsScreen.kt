@@ -42,6 +42,21 @@ import java.net.URI
 import javax.swing.JFileChooser
 
 private const val REPO_URL = "https://github.com/DoraemonDpdx/Seal"
+private const val UPSTREAM_URL = "https://github.com/JunkFood02/Seal"
+
+@Composable
+private fun LinkText(url: String) {
+    Text(
+        text = url,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        textDecoration = TextDecoration.Underline,
+        modifier =
+            Modifier.padding(top = 4.dp).clickable {
+                runCatching { Desktop.getDesktop().browse(URI(url)) }
+            },
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -178,16 +193,14 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
             )
+            LinkText(url = REPO_URL)
             Text(
-                text = REPO_URL,
+                text = "Based on Seal for Android by JunkFood02:",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                textDecoration = TextDecoration.Underline,
-                modifier =
-                    Modifier.padding(top = 4.dp).clickable {
-                        runCatching { Desktop.getDesktop().browse(URI(REPO_URL)) }
-                    },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
             )
+            LinkText(url = UPSTREAM_URL)
         }
     }
 }

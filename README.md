@@ -8,6 +8,9 @@
 
 > **Desktop (Windows) port**: this fork adds a desktop app, built by
 > [DoraemonDpdx](https://github.com/DoraemonDpdx/Seal) using Claude Code, powered by Fable 5.
+> Based on the original [Seal for Android](https://github.com/JunkFood02/Seal) by
+> [JunkFood02](https://github.com/JunkFood02) — all credit for the Android app and its design
+> goes to the upstream project.
 
 
 English
