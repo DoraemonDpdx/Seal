@@ -9,10 +9,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
 
 @Composable
 fun InputUrlDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
+    val clipboard = LocalClipboardManager.current
+    var text by remember {
+        val clip = runCatching { clipboard.getText()?.text?.trim() }.getOrNull().orEmpty()
+        mutableStateOf(if (clip.startsWith("http://") || clip.startsWith("https://")) clip else "")
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,

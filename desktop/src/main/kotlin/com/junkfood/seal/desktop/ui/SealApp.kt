@@ -16,6 +16,8 @@ import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
 import com.junkfood.seal.desktop.download.YtDlpDownloader
 import java.io.File
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 
 private sealed interface Screen {
@@ -41,29 +43,46 @@ fun SealApp() {
 
     val downloader = remember { YtDlpDownloader() }
     val tasks = remember { mutableStateListOf<DownloadTask>() }
+    val downloadJobs = remember { mutableMapOf<Long, Job>() }
     val scope = rememberCoroutineScope()
     var nextId by remember { mutableStateOf(0L) }
+
+    fun updateTask(taskId: Long, transform: (DownloadTask) -> DownloadTask) {
+        val index = tasks.indexOfFirst { it.id == taskId }
+        if (index >= 0) tasks[index] = transform(tasks[index])
+    }
 
     fun startDownload(url: String) {
         val taskId = nextId++
         tasks.add(0, DownloadTask(id = taskId, url = url))
-        scope.launch {
-            val outputDir = File(settings.downloadDirectory)
-            downloader.download(url, outputDir).collect { state ->
-                val index = tasks.indexOfFirst { it.id == taskId }
-                if (index >= 0) tasks[index] = tasks[index].copy(state = state)
-                if (state is DownloadState.Completed) {
-                    history =
-                        HistoryStore.append(
-                            HistoryEntry(
-                                id = taskId,
-                                title = state.title ?: url,
-                                url = url,
-                                filePath = state.filePath,
+        downloadJobs[taskId] =
+            scope.launch {
+                val outputDir = File(settings.downloadDirectory)
+                // conflate() drops intermediate progress updates while the UI is busy, so bursts
+                // of yt-dlp progress lines recompose at most at UI rate instead of queueing up.
+                downloader.download(url, outputDir).conflate().collect { state ->
+                    updateTask(taskId) { it.copy(state = state) }
+                    if (state is DownloadState.Completed) {
+                        history =
+                            HistoryStore.append(
+                                HistoryEntry(
+                                    id = taskId,
+                                    title = state.title ?: url,
+                                    url = url,
+                                    filePath = state.filePath,
+                                )
                             )
-                        )
+                    }
                 }
+                downloadJobs.remove(taskId)
             }
+    }
+
+    fun cancelDownload(taskId: Long) {
+        downloadJobs.remove(taskId)?.cancel()
+        updateTask(taskId) { task ->
+            val title = (task.state as? DownloadState.Running)?.title
+            task.copy(state = DownloadState.Canceled(title = title))
         }
     }
 
@@ -74,6 +93,7 @@ fun SealApp() {
                     settings = settings,
                     tasks = tasks,
                     onStartDownload = ::startDownload,
+                    onCancelDownload = ::cancelDownload,
                     onOpenVideoList = { screen = Screen.VideoList },
                     onOpenSettings = { screen = Screen.Settings },
                 )

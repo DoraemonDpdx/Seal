@@ -1,9 +1,12 @@
 package com.junkfood.seal.desktop.ui
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
@@ -47,6 +51,7 @@ fun HomeScreen(
     settings: DesktopSettings,
     tasks: List<DownloadTask>,
     onStartDownload: (String) -> Unit,
+    onCancelDownload: (Long) -> Unit,
     onOpenVideoList: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -117,7 +122,13 @@ fun HomeScreen(
                 EmptyState()
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
-                    items(tasks, key = { it.id }) { task -> TaskCard(task) }
+                    items(tasks, key = { it.id }) { task ->
+                        TaskCard(
+                            task = task,
+                            onCancel = { onCancelDownload(task.id) },
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
                 }
             }
         }
@@ -151,56 +162,86 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun TaskCard(task: DownloadTask) {
-    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            val title =
-                when (val state = task.state) {
-                    is DownloadState.Running -> state.title
-                    is DownloadState.Completed -> state.title
-                    else -> null
-                } ?: task.url
-            Text(text = title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+private fun TaskCard(task: DownloadTask, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    val state = task.state
+    Card(
+        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp).animateContentSize(),
+        onClick = {
+            if (state is DownloadState.Completed) {
+                runCatching { Desktop.getDesktop().open(File(state.filePath)) }
+            }
+        },
+        enabled = state is DownloadState.Completed,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                val title =
+                    when (state) {
+                        is DownloadState.Running -> state.title
+                        is DownloadState.Completed -> state.title
+                        is DownloadState.Canceled -> state.title
+                        else -> null
+                    } ?: task.url
+                Text(text = title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
 
-            when (val state = task.state) {
-                is DownloadState.FetchingInfo ->
-                    Text(
-                        text = "Fetching info…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                when (state) {
+                    is DownloadState.FetchingInfo ->
+                        Text(
+                            text = "Fetching info…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
 
-                is DownloadState.Running -> {
-                    LinearProgressIndicator(
-                        progress = { state.progress },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                    Text(
-                        text = listOf(state.progressText, state.speedText)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+                    is DownloadState.Running -> {
+                        val animatedProgress by animateFloatAsState(state.progress)
+                        LinearProgressIndicator(
+                            progress = { animatedProgress },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        )
+                        Text(
+                            text = listOf(state.progressText, state.speedText)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+
+                    is DownloadState.Completed ->
+                        Text(
+                            text = "Saved to ${state.filePath} — click to open",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+
+                    is DownloadState.Canceled ->
+                        Text(
+                            text = "Canceled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+
+                    is DownloadState.Error ->
+                        Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                 }
+            }
 
-                is DownloadState.Completed ->
-                    Text(
-                        text = "Saved to ${state.filePath}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-
-                is DownloadState.Error ->
-                    Text(
-                        text = state.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+            if (state is DownloadState.FetchingInfo || state is DownloadState.Running) {
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Outlined.Cancel, contentDescription = "Cancel download")
+                }
             }
         }
     }

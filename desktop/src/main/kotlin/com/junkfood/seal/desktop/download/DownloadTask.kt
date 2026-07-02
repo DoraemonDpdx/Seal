@@ -15,5 +15,7 @@ sealed interface DownloadState {
 
     data class Completed(val title: String?, val filePath: String) : DownloadState
 
+    data class Canceled(val title: String? = null) : DownloadState
+
     data class Error(val message: String) : DownloadState
 }
