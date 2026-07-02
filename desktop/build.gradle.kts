@@ -30,10 +30,15 @@ val ytDlpBinDir = layout.buildDirectory.dir("ytdlp-bin")
 // Compose Desktop only bundles app resources from OS-specific subfolders of appResourcesRootDir
 // ("windows", "macos", "linux", or "common") — files placed directly in the root are ignored at
 // packaging time.
-private fun osResourceDirName(): String =
+//
+// All host-OS decisions are made here at configuration time and captured as plain strings, so the
+// doLast actions don't reference the build script itself (a configuration-cache requirement).
+val hostIsWindows = OperatingSystem.current().isWindows
+val hostIsMac = OperatingSystem.current().isMacOsX
+val osResourceDirName =
     when {
-        OperatingSystem.current().isWindows -> "windows"
-        OperatingSystem.current().isMacOsX -> "macos"
+        hostIsWindows -> "windows"
+        hostIsMac -> "macos"
         else -> "linux"
     }
 
@@ -44,22 +49,24 @@ val downloadYtDlp by
         val outputDirProvider = ytDlpBinDir
         outputs.dir(outputDirProvider)
 
-        doLast {
-            val (assetName, targetName) =
-                when {
-                    OperatingSystem.current().isWindows -> "yt-dlp.exe" to "yt-dlp.exe"
-                    OperatingSystem.current().isMacOsX -> "yt-dlp_macos" to "yt-dlp"
-                    else -> "yt-dlp_linux" to "yt-dlp"
-                }
+        val isWindows = hostIsWindows
+        val osDirName = osResourceDirName
+        val (assetName, targetName) =
+            when {
+                hostIsWindows -> "yt-dlp.exe" to "yt-dlp.exe"
+                hostIsMac -> "yt-dlp_macos" to "yt-dlp"
+                else -> "yt-dlp_linux" to "yt-dlp"
+            }
 
-            val outputDir = outputDirProvider.get().asFile.resolve(osResourceDirName()).apply { mkdirs() }
+        doLast {
+            val outputDir = outputDirProvider.get().asFile.resolve(osDirName).apply { mkdirs() }
             val target = outputDir.resolve(targetName)
 
             if (!target.exists()) {
                 val url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$assetName"
                 logger.lifecycle("Downloading yt-dlp binary from $url")
                 URI(url).toURL().openStream().use { input -> target.outputStream().use { input.copyTo(it) } }
-                if (!OperatingSystem.current().isWindows) target.setExecutable(true)
+                if (!isWindows) target.setExecutable(true)
             }
         }
     }
@@ -70,13 +77,17 @@ val downloadYtDlp by
 val downloadFfmpeg by
     tasks.registering {
         description = "Downloads a static ffmpeg build (Windows only) to bundle into the installer"
-        onlyIf { OperatingSystem.current().isWindows }
+
+        val isWindows = hostIsWindows
+        onlyIf { isWindows }
 
         val outputDirProvider = ytDlpBinDir
         outputs.dir(outputDirProvider)
 
+        val osDirName = osResourceDirName
+
         doLast {
-            val outputDir = outputDirProvider.get().asFile.resolve(osResourceDirName()).apply { mkdirs() }
+            val outputDir = outputDirProvider.get().asFile.resolve(osDirName).apply { mkdirs() }
             val wanted = setOf("ffmpeg.exe", "ffprobe.exe")
             if (wanted.all { outputDir.resolve(it).exists() }) return@doLast
 
@@ -128,6 +139,8 @@ compose.desktop {
     }
 }
 
-tasks.matching { it.name.startsWith("package") }.configureEach {
+// prepareAppResources is the Compose plugin's Sync task that copies appResourcesRootDir into the
+// packaged app image; it must run after the binaries have been downloaded into that dir.
+tasks.matching { it.name == "prepareAppResources" || it.name.startsWith("package") }.configureEach {
     dependsOn(downloadYtDlp, downloadFfmpeg)
 }
