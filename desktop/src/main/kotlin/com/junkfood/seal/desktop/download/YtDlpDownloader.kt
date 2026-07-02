@@ -2,9 +2,11 @@ package com.junkfood.seal.desktop.download
 
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.job
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -50,6 +52,13 @@ class YtDlpDownloader(binaryPath: String? = null) {
                         emit(DownloadState.Error("Failed to launch $resolvedBinaryPath: ${e.message}"))
                         return@flow
                     }
+
+                // Kill the subprocess when the collecting coroutine is cancelled (e.g. the user
+                // cancels the download). Destroying the process also closes its stdout, which
+                // unblocks the readLine() loop below.
+                currentCoroutineContext().job.invokeOnCompletion { cause ->
+                    if (cause != null) process.destroy()
+                }
 
                 var lastTitle: String? = null
                 val stderrLines = StringBuilder()

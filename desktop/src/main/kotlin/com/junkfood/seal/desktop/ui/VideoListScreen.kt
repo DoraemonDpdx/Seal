@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.junkfood.seal.desktop.data.HistoryEntry
+import java.awt.Desktop
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -68,15 +71,25 @@ fun VideoListScreen(entries: List<HistoryEntry>, onBack: () -> Unit, onDelete: (
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(16.dp),
             ) {
-                items(entries, key = { it.id }) { entry -> HistoryCard(entry, onDelete) }
+                items(entries, key = { it.id }) { entry ->
+                    HistoryCard(entry = entry, onDelete = onDelete, modifier = Modifier.animateItem())
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HistoryCard(entry: HistoryEntry, onDelete: (Long) -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+private fun HistoryCard(
+    entry: HistoryEntry,
+    onDelete: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp),
+        onClick = { runCatching { Desktop.getDesktop().open(File(entry.filePath)) } },
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -94,6 +107,13 @@ private fun HistoryCard(entry: HistoryEntry, onDelete: (Long) -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+            }
+            IconButton(
+                onClick = {
+                    runCatching { Desktop.getDesktop().open(File(entry.filePath).parentFile) }
+                }
+            ) {
+                Icon(Icons.Outlined.Folder, contentDescription = "Show in folder")
             }
             IconButton(onClick = { onDelete(entry.id) }) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Remove from history")
