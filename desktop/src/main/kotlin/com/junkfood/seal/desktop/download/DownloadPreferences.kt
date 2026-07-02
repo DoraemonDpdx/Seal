@@ -28,6 +28,14 @@ data class DownloadPreferences(
     val embedMetadata: Boolean = true,
     val sponsorBlock: Boolean = false,
     val concurrentFragments: Int = 8,
+    /** HTTP/SOCKS proxy passed to yt-dlp (`--proxy`); empty means no proxy. */
+    val proxyUrl: String = "",
+    /** Download rate limit passed to yt-dlp (`-r`), e.g. "1M" or "500K"; empty means unlimited. */
+    val rateLimit: String = "",
+    /** Force IPv4 (`-4`) — a common fix for stalled/slow downloads on some networks. */
+    val forceIpv4: Boolean = false,
+    /** Extract cookies from an installed browser (`--cookies-from-browser`); empty means none. */
+    val cookiesFromBrowser: String = "",
     /** Extra command-line arguments appended verbatim to the yt-dlp invocation. */
     val customArgs: String = "",
     /** Explicit `-f` format id chosen in the format selector; overrides quality/format prefs. */
@@ -39,5 +47,17 @@ data class DownloadPreferences(
         val videoFormatOptions = listOf("" to "Auto", "mp4" to "MP4", "webm" to "WebM")
         val audioFormatOptions =
             listOf("" to "Auto", "mp3" to "MP3", "m4a" to "M4A", "opus" to "OPUS", "flac" to "FLAC")
+        val cookiesBrowserOptions =
+            listOf(
+                "" to "None",
+                "firefox" to "Firefox",
+                "chrome" to "Chrome",
+                "chromium" to "Chromium",
+                "edge" to "Edge",
+                "brave" to "Brave",
+                "opera" to "Opera",
+                "vivaldi" to "Vivaldi",
+                "safari" to "Safari",
+            )
     }
 }

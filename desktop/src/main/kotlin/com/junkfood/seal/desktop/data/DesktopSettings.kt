@@ -14,6 +14,8 @@ data class DesktopSettings(
     val downloadPreferences: DownloadPreferences = DownloadPreferences(),
     /** Set after the bundled binaries dir has been added to the user PATH (Windows only). */
     val addedToPath: Boolean = false,
+    /** Show a native desktop notification when a download finishes. */
+    val notifyOnComplete: Boolean = true,
 ) {
     companion object {
         fun defaultDownloadDirectory(): String =

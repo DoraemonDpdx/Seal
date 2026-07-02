@@ -56,6 +56,33 @@ class YtDlpDownloader(binaryPath: String? = null) {
             parseVideoInfo(json.parseToJsonElement(stdout).jsonObject)
         }
 
+    /** Runs `yt-dlp --version`, returning the version string or null if it can't be determined. */
+    suspend fun version(): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val process = ProcessBuilder(resolvedBinaryPath, "--version").redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().readText().trim()
+                if (process.waitFor() == 0) output.takeIf { it.isNotBlank() } else null
+            }.getOrNull()
+        }
+
+    /**
+     * Runs `yt-dlp -U` to self-update the binary. Returns the last non-blank line of output on
+     * success (e.g. "yt-dlp is up to date") or throws with the error text. Note: a bundled binary
+     * in a read-only install location may not be able to update itself.
+     */
+    suspend fun update(): String =
+        withContext(Dispatchers.IO) {
+            val process = ProcessBuilder(resolvedBinaryPath, "-U").redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+            val lastLine = output.lineSequence().lastOrNull { it.isNotBlank() }?.trim()
+            if (exitCode != 0) {
+                error(lastLine ?: "yt-dlp update failed with code $exitCode")
+            }
+            lastLine ?: "yt-dlp is up to date"
+        }
+
     fun download(
         url: String,
         outputDir: File,
@@ -169,6 +196,14 @@ class YtDlpDownloader(binaryPath: String? = null) {
             prefs.formatId != null -> {
                 add("-f")
                 add(prefs.formatId)
+                // A merged selection (video+audio) needs an explicit output container, otherwise a
+                // video-only mp4 stream merged with audio can be written without a playable audio
+                // track. mp4 is the widely-compatible default; yt-dlp falls back to mkv when the
+                // chosen streams can't live in an mp4 container.
+                if (prefs.formatId.contains("+")) {
+                    add("--merge-output-format")
+                    add("mp4")
+                }
             }
             prefs.downloadType == DownloadType.Audio -> {
                 add("-x")
@@ -185,6 +220,21 @@ class YtDlpDownloader(binaryPath: String? = null) {
                     add("mp4")
                 }
             }
+        }
+
+        // Network options.
+        if (prefs.proxyUrl.isNotBlank()) {
+            add("--proxy")
+            add(prefs.proxyUrl.trim())
+        }
+        if (prefs.rateLimit.isNotBlank()) {
+            add("-r")
+            add(prefs.rateLimit.trim())
+        }
+        if (prefs.forceIpv4) add("-4")
+        if (prefs.cookiesFromBrowser.isNotBlank()) {
+            add("--cookies-from-browser")
+            add(prefs.cookiesFromBrowser.trim())
         }
 
         if (prefs.downloadSubtitles) {
@@ -212,7 +262,13 @@ class YtDlpDownloader(binaryPath: String? = null) {
                 "webm" -> "[ext=webm]"
                 else -> ""
             }
-        return "bv*$height$ext+ba/b$height$ext/b$height"
+        // For mp4, prefer an m4a audio track first so the merged file always carries mp4-compatible
+        // audio (avoids the silent-mp4 case when bestaudio would otherwise pick opus/webm).
+        return if (prefs.videoFormat == "mp4") {
+            "bv*$height$ext+ba[ext=m4a]/bv*$height$ext+ba/b$height$ext/b$height"
+        } else {
+            "bv*$height$ext+ba/b$height$ext/b$height"
+        }
     }
 
     private fun fileNameToTitle(fileName: String): String =

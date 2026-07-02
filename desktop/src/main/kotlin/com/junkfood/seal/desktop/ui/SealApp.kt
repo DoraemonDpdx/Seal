@@ -10,13 +10,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.junkfood.seal.desktop.data.DesktopSettings
-import com.junkfood.seal.desktop.data.HistoryEntry
 import com.junkfood.seal.desktop.data.HistoryStore
 import com.junkfood.seal.desktop.data.SettingsStore
 import com.junkfood.seal.desktop.download.DownloadPreferences
 import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
 import com.junkfood.seal.desktop.download.YtDlpDownloader
+import com.junkfood.seal.desktop.platform.DesktopNotifier
 import com.junkfood.seal.desktop.platform.PathIntegration
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -81,16 +81,26 @@ fun SealApp() {
                 // of yt-dlp progress lines recompose at most at UI rate instead of queueing up.
                 downloader.download(url, outputDir, preferences).conflate().collect { state ->
                     updateTask(taskId) { it.copy(state = state) }
-                    if (state is DownloadState.Completed) {
-                        history =
-                            HistoryStore.append(
-                                HistoryEntry(
-                                    id = taskId,
+                    when (state) {
+                        is DownloadState.Completed -> {
+                            history =
+                                HistoryStore.append(
                                     title = state.title ?: url,
                                     url = url,
                                     filePath = state.filePath,
                                 )
-                            )
+                            if (settings.notifyOnComplete) {
+                                DesktopNotifier.notify(
+                                    title = "Download complete",
+                                    message = state.title ?: url,
+                                )
+                            }
+                        }
+                        is DownloadState.Error ->
+                            if (settings.notifyOnComplete) {
+                                DesktopNotifier.notify(title = "Download failed", message = state.message)
+                            }
+                        else -> {}
                     }
                 }
                 downloadJobs.remove(taskId)
@@ -134,6 +144,8 @@ fun SealApp() {
                         settings = updated
                         SettingsStore.save(updated)
                     },
+                    fetchYtDlpVersion = downloader::version,
+                    updateYtDlp = downloader::update,
                 )
         }
     }

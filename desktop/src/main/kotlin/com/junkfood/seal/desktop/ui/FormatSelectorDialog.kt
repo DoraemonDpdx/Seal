@@ -42,11 +42,16 @@ fun FormatSelectorDialog(
     var selectedVideo by remember { mutableStateOf<FormatInfo?>(null) }
     var selectedAudio by remember { mutableStateOf<FormatInfo?>(null) }
 
+    // Build the `-f` string. A picked video-only stream must be merged with an audio track, or the
+    // saved file is silent (the "mp4 no audio" bug). We append `+bestaudio` in that case and keep a
+    // fallback to the bare video id for the rare stream that has no separate audio to merge.
     val formatId: String? =
         when {
             selectedVideo != null && selectedAudio != null ->
                 "${selectedVideo!!.formatId}+${selectedAudio!!.formatId}"
-            selectedVideo != null -> selectedVideo!!.formatId
+            selectedVideo != null && selectedVideo!!.hasAudio -> selectedVideo!!.formatId
+            selectedVideo != null ->
+                "${selectedVideo!!.formatId}+bestaudio/${selectedVideo!!.formatId}"
             selectedAudio != null -> selectedAudio!!.formatId
             else -> null
         }
