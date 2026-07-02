@@ -6,6 +6,9 @@
 
 ### Video/Audio Downloader for Android
 
+> **Desktop (Windows) port**: this fork adds a desktop app, built by
+> [DoraemonDpdx](https://github.com/DoraemonDpdx/Seal) using Claude Code, powered by Fable 5.
+
 
 English
 &nbsp;&nbsp;| &nbsp;&nbsp;

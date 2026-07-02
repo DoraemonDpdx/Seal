@@ -33,9 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.style.TextDecoration
 import com.junkfood.seal.desktop.data.DesktopSettings
+import java.awt.Desktop
 import java.io.File
+import java.net.URI
 import javax.swing.JFileChooser
+
+private const val REPO_URL = "https://github.com/DoraemonDpdx/Seal"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -160,6 +166,28 @@ fun SettingsScreen(
             ) {
                 Text("Save")
             }
+
+            Text(
+                text = "About",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 32.dp),
+            )
+            Text(
+                text = "Seal for desktop — built by DoraemonDpdx using Claude Code, powered by Fable 5.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                text = REPO_URL,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline,
+                modifier =
+                    Modifier.padding(top = 4.dp).clickable {
+                        runCatching { Desktop.getDesktop().browse(URI(REPO_URL)) }
+                    },
+            )
         }
     }
 }
