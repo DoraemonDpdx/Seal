@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -18,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -36,10 +39,12 @@ import javax.swing.JFileChooser
 @Composable
 fun SettingsScreen(
     settings: DesktopSettings,
+    ytDlpDirectory: String?,
     onBack: () -> Unit,
     onSettingsChange: (DesktopSettings) -> Unit,
 ) {
     var downloadDirectory by remember(settings) { mutableStateOf(settings.downloadDirectory) }
+    var prefs by remember(settings) { mutableStateOf(settings.downloadPreferences) }
 
     Scaffold(
         topBar = {
@@ -53,7 +58,13 @@ fun SettingsScreen(
             )
         }
     ) { padding: PaddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp)) {
+        Column(
+            modifier =
+                Modifier.fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp)
+        ) {
             Text(text = "Download directory", style = MaterialTheme.typography.titleSmall)
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -84,9 +95,62 @@ fun SettingsScreen(
                     Text(text = "Browse", modifier = Modifier.padding(start = 8.dp))
                 }
             }
+
+            Text(
+                text = "Download speed",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            Text(
+                text = "Concurrent fragments: ${prefs.concurrentFragments}",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Slider(
+                value = prefs.concurrentFragments.toFloat(),
+                onValueChange = { prefs = prefs.copy(concurrentFragments = it.toInt().coerceIn(1, 16)) },
+                valueRange = 1f..16f,
+                steps = 14,
+            )
+            Text(
+                text =
+                    "Downloads video fragments in parallel — higher is faster on fast " +
+                        "connections, at the cost of more CPU and connections.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Text(
+                text = "yt-dlp",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            Text(
+                text =
+                    ytDlpDirectory?.let { "Using bundled binaries in $it" }
+                        ?: "Using yt-dlp from PATH",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            if (settings.addedToPath) {
+                Text(
+                    text = "Added to your PATH — yt-dlp is available in any terminal.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Button(
-                onClick = { onSettingsChange(settings.copy(downloadDirectory = downloadDirectory)) },
-                modifier = Modifier.padding(top = 16.dp),
+                onClick = {
+                    onSettingsChange(
+                        settings.copy(
+                            downloadDirectory = downloadDirectory,
+                            downloadPreferences = prefs,
+                        )
+                    )
+                },
+                modifier = Modifier.padding(top = 24.dp),
             ) {
                 Text("Save")
             }

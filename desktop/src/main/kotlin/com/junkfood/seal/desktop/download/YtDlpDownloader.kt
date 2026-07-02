@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.job
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -16,10 +17,10 @@ import kotlinx.serialization.json.jsonPrimitive
  * Drives the `yt-dlp` CLI as a subprocess and turns its `--progress-template` JSON output into
  * [DownloadState] updates.
  *
- * Binary resolution: when packaged, the installer bundles a yt-dlp binary via Compose Desktop's
- * app-resources mechanism (see `desktop/build.gradle.kts`'s `downloadYtDlp` task), and that
- * binary is preferred. When running unpackaged (e.g. `./gradlew :desktop:run`), no bundled
- * resources dir exists, so this falls back to `yt-dlp` on PATH.
+ * Binary resolution: when packaged, the installer bundles yt-dlp (and ffmpeg on Windows) via
+ * Compose Desktop's app-resources mechanism (see `desktop/build.gradle.kts`), and those binaries
+ * are preferred. When running unpackaged (e.g. `./gradlew :desktop:run`), this falls back to a
+ * binary next to the launcher, in the working directory, and finally `yt-dlp` on PATH.
  */
 class YtDlpDownloader(binaryPath: String? = null) {
 
@@ -27,23 +28,43 @@ class YtDlpDownloader(binaryPath: String? = null) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun download(url: String, outputDir: File): Flow<DownloadState> =
+    /** Directory containing the yt-dlp binary Seal is actually using, or null for PATH lookup. */
+    val binaryDirectory: String?
+        get() = File(resolvedBinaryPath).takeIf { it.isAbsolute }?.parent
+
+    /**
+     * Runs `yt-dlp -J` to fetch metadata (title + available formats) for the format selector.
+     * Executes on [Dispatchers.IO]; throws with yt-dlp's stderr on failure.
+     */
+    suspend fun fetchVideoInfo(url: String): VideoInfo =
+        withContext(Dispatchers.IO) {
+            val command =
+                buildList {
+                    add(resolvedBinaryPath)
+                    add("-J")
+                    add("--no-playlist")
+                    ffmpegLocationArgs().forEach(::add)
+                    add(url)
+                }
+            val process = ProcessBuilder(command).start()
+            val stdout = process.inputStream.bufferedReader().readText()
+            val stderr = process.errorStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                error(stderr.lineSequence().lastOrNull { it.isNotBlank() } ?: "yt-dlp exited with code $exitCode")
+            }
+            parseVideoInfo(json.parseToJsonElement(stdout).jsonObject)
+        }
+
+    fun download(
+        url: String,
+        outputDir: File,
+        preferences: DownloadPreferences = DownloadPreferences(),
+    ): Flow<DownloadState> =
         flow {
                 outputDir.mkdirs()
 
-                val command =
-                    listOf(
-                        resolvedBinaryPath,
-                        "--newline",
-                        "--no-color",
-                        "--concurrent-fragments",
-                        "4",
-                        "--progress-template",
-                        "download:%(progress)j",
-                        "-o",
-                        "%(title).200B [%(id)s].%(ext)s",
-                        url,
-                    )
+                val command = buildCommand(url, preferences)
 
                 val process =
                     try {
@@ -129,6 +150,71 @@ class YtDlpDownloader(binaryPath: String? = null) {
             }
             .flowOn(Dispatchers.IO)
 
+    private fun buildCommand(url: String, prefs: DownloadPreferences): List<String> = buildList {
+        add(resolvedBinaryPath)
+        add("--newline")
+        add("--no-color")
+        add("--concurrent-fragments")
+        add(prefs.concurrentFragments.coerceIn(1, 16).toString())
+        add("--progress-template")
+        add("download:%(progress)j")
+        add("-o")
+        add("%(title).200B [%(id)s].%(ext)s")
+
+        add(if (prefs.downloadPlaylist) "--yes-playlist" else "--no-playlist")
+
+        ffmpegLocationArgs().forEach(::add)
+
+        when {
+            prefs.formatId != null -> {
+                add("-f")
+                add(prefs.formatId)
+            }
+            prefs.downloadType == DownloadType.Audio -> {
+                add("-x")
+                if (prefs.audioFormat.isNotEmpty()) {
+                    add("--audio-format")
+                    add(prefs.audioFormat)
+                }
+            }
+            else -> {
+                add("-f")
+                add(videoFormatSelector(prefs))
+                if (prefs.videoFormat == "mp4") {
+                    add("--merge-output-format")
+                    add("mp4")
+                }
+            }
+        }
+
+        if (prefs.downloadSubtitles) {
+            add("--write-subs")
+            add("--sub-langs")
+            add("all,-live_chat")
+        }
+        if (prefs.embedThumbnail) add("--embed-thumbnail")
+        if (prefs.embedMetadata) add("--embed-metadata")
+        if (prefs.sponsorBlock) {
+            add("--sponsorblock-remove")
+            add("default")
+        }
+
+        if (prefs.customArgs.isNotBlank()) addAll(tokenizeArgs(prefs.customArgs))
+
+        add(url)
+    }
+
+    private fun videoFormatSelector(prefs: DownloadPreferences): String {
+        val height = if (prefs.videoQuality > 0) "[height<=${prefs.videoQuality}]" else ""
+        val ext =
+            when (prefs.videoFormat) {
+                "mp4" -> "[ext=mp4]"
+                "webm" -> "[ext=webm]"
+                else -> ""
+            }
+        return "bv*$height$ext+ba/b$height$ext/b$height"
+    }
+
     private fun fileNameToTitle(fileName: String): String =
         fileName.substringBeforeLast('.').substringBeforeLast(" [")
 
@@ -150,20 +236,47 @@ class YtDlpDownloader(binaryPath: String? = null) {
          * Returns null when none of those exist, in which case the caller falls back to `yt-dlp`
          * on PATH.
          */
-        private fun resolveBinaryPath(): String? {
-            val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
+        fun resolveBinaryPath(): String? {
             val binaryName = if (isWindows) "yt-dlp.exe" else "yt-dlp"
+            return candidateDirs().map { File(it, binaryName) }.firstOrNull { it.isFile }?.absolutePath
+        }
 
-            val candidates = buildList {
-                System.getProperty("compose.application.resources.dir")?.let {
-                    add(File(it, binaryName))
+        /** Points yt-dlp at the bundled ffmpeg (needed for merging/extraction), when present. */
+        private fun ffmpegLocationArgs(): List<String> {
+            val ffmpegName = if (isWindows) "ffmpeg.exe" else "ffmpeg"
+            val ffmpeg = candidateDirs().map { File(it, ffmpegName) }.firstOrNull { it.isFile }
+            return if (ffmpeg != null) listOf("--ffmpeg-location", ffmpeg.parent) else emptyList()
+        }
+
+        private fun candidateDirs(): List<File> = buildList {
+            System.getProperty("compose.application.resources.dir")?.let { add(File(it)) }
+            ProcessHandle.current().info().command().orElse(null)?.let { File(it).parentFile?.let(::add) }
+            add(File(System.getProperty("user.dir")))
+        }
+
+        private val isWindows: Boolean
+            get() = System.getProperty("os.name")?.lowercase()?.contains("win") == true
+
+        /** Splits custom args, honouring double and single quotes. */
+        internal fun tokenizeArgs(input: String): List<String> {
+            val tokens = mutableListOf<String>()
+            val current = StringBuilder()
+            var quote: Char? = null
+            for (c in input) {
+                when {
+                    quote != null -> if (c == quote) quote = null else current.append(c)
+                    c == '"' || c == '\'' -> quote = c
+                    c.isWhitespace() -> {
+                        if (current.isNotEmpty()) {
+                            tokens += current.toString()
+                            current.clear()
+                        }
+                    }
+                    else -> current.append(c)
                 }
-                ProcessHandle.current().info().command().orElse(null)?.let {
-                    File(it).parentFile?.let { dir -> add(File(dir, binaryName)) }
-                }
-                add(File(System.getProperty("user.dir"), binaryName))
             }
-            return candidates.firstOrNull { it.isFile }?.absolutePath
+            if (current.isNotEmpty()) tokens += current.toString()
+            return tokens
         }
     }
 }
