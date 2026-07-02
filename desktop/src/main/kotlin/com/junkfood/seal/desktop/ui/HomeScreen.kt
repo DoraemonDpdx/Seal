@@ -11,8 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.outlined.Cancel
@@ -39,31 +40,69 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
 import com.junkfood.seal.desktop.data.DesktopSettings
+import com.junkfood.seal.desktop.download.DownloadPreferences
 import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
+import com.junkfood.seal.desktop.download.VideoInfo
 import java.awt.Desktop
 import java.io.File
+
+private data class FormatSelectionState(
+    val url: String,
+    val preferences: DownloadPreferences,
+    val info: VideoInfo? = null,
+    val error: String? = null,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     settings: DesktopSettings,
     tasks: List<DownloadTask>,
-    onStartDownload: (String) -> Unit,
+    onStartDownload: (String, DownloadPreferences) -> Unit,
     onCancelDownload: (Long) -> Unit,
     onOpenVideoList: () -> Unit,
     onOpenSettings: () -> Unit,
+    fetchVideoInfo: suspend (String) -> VideoInfo,
 ) {
     var showInputDialog by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    var formatSelection by remember { mutableStateOf<FormatSelectionState?>(null) }
 
     if (showInputDialog) {
-        InputUrlDialog(
+        DownloadDialog(
+            defaultPreferences = settings.downloadPreferences,
             onDismiss = { showInputDialog = false },
-            onConfirm = { url ->
+            onConfirm = { url, prefs ->
                 showInputDialog = false
-                onStartDownload(url)
+                onStartDownload(url, prefs)
+            },
+            onSelectFormats = { url, prefs ->
+                showInputDialog = false
+                formatSelection = FormatSelectionState(url = url, preferences = prefs)
+            },
+        )
+    }
+
+    formatSelection?.let { selection ->
+        // Fetch formats once per URL while the selector is open.
+        LaunchedEffect(selection.url) {
+            runCatching { fetchVideoInfo(selection.url) }
+                .onSuccess { info -> formatSelection = formatSelection?.copy(info = info) }
+                .onFailure { e ->
+                    formatSelection =
+                        formatSelection?.copy(error = e.message ?: "Failed to fetch formats")
+                }
+        }
+        FormatSelectorDialog(
+            videoInfo = selection.info,
+            error = selection.error,
+            onDismiss = { formatSelection = null },
+            onConfirm = { formatId ->
+                formatSelection = null
+                onStartDownload(selection.url, selection.preferences.copy(formatId = formatId))
             },
         )
     }
@@ -121,7 +160,15 @@ fun HomeScreen(
             if (tasks.isEmpty()) {
                 EmptyState()
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+                // Adaptive grid: one column on a narrow window, more as the window widens, so
+                // desktop-sized windows aren't a single stretched phone column.
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 380.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     items(tasks, key = { it.id }) { task ->
                         TaskCard(
                             task = task,
@@ -165,7 +212,7 @@ private fun EmptyState() {
 private fun TaskCard(task: DownloadTask, onCancel: () -> Unit, modifier: Modifier = Modifier) {
     val state = task.state
     Card(
-        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp).animateContentSize(),
+        modifier = modifier.fillMaxWidth().animateContentSize(),
         onClick = {
             if (state is DownloadState.Completed) {
                 runCatching { Desktop.getDesktop().open(File(state.filePath)) }

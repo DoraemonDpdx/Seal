@@ -2,6 +2,7 @@ package com.junkfood.seal.desktop.ui
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -12,13 +13,17 @@ import com.junkfood.seal.desktop.data.DesktopSettings
 import com.junkfood.seal.desktop.data.HistoryEntry
 import com.junkfood.seal.desktop.data.HistoryStore
 import com.junkfood.seal.desktop.data.SettingsStore
+import com.junkfood.seal.desktop.download.DownloadPreferences
 import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
 import com.junkfood.seal.desktop.download.YtDlpDownloader
+import com.junkfood.seal.desktop.platform.PathIntegration
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private sealed interface Screen {
     data object Home : Screen
@@ -47,12 +52,26 @@ fun SealApp() {
     val scope = rememberCoroutineScope()
     var nextId by remember { mutableStateOf(0L) }
 
+    // First launch of a packaged install: put the bundled yt-dlp/ffmpeg dir on the user PATH
+    // (Windows only) so the tools are also usable from any terminal. The installer itself
+    // (jpackage MSI) can't run custom actions, so this happens here instead.
+    LaunchedEffect(Unit) {
+        if (!settings.addedToPath) {
+            val dir = downloader.binaryDirectory ?: return@LaunchedEffect
+            val added = withContext(Dispatchers.IO) { PathIntegration.ensureOnUserPath(dir) }
+            if (added) {
+                settings = settings.copy(addedToPath = true)
+                SettingsStore.save(settings)
+            }
+        }
+    }
+
     fun updateTask(taskId: Long, transform: (DownloadTask) -> DownloadTask) {
         val index = tasks.indexOfFirst { it.id == taskId }
         if (index >= 0) tasks[index] = transform(tasks[index])
     }
 
-    fun startDownload(url: String) {
+    fun startDownload(url: String, preferences: DownloadPreferences) {
         val taskId = nextId++
         tasks.add(0, DownloadTask(id = taskId, url = url))
         downloadJobs[taskId] =
@@ -60,7 +79,7 @@ fun SealApp() {
                 val outputDir = File(settings.downloadDirectory)
                 // conflate() drops intermediate progress updates while the UI is busy, so bursts
                 // of yt-dlp progress lines recompose at most at UI rate instead of queueing up.
-                downloader.download(url, outputDir).conflate().collect { state ->
+                downloader.download(url, outputDir, preferences).conflate().collect { state ->
                     updateTask(taskId) { it.copy(state = state) }
                     if (state is DownloadState.Completed) {
                         history =
@@ -96,6 +115,7 @@ fun SealApp() {
                     onCancelDownload = ::cancelDownload,
                     onOpenVideoList = { screen = Screen.VideoList },
                     onOpenSettings = { screen = Screen.Settings },
+                    fetchVideoInfo = downloader::fetchVideoInfo,
                 )
 
             Screen.VideoList ->
@@ -108,6 +128,7 @@ fun SealApp() {
             Screen.Settings ->
                 SettingsScreen(
                     settings = settings,
+                    ytDlpDirectory = downloader.binaryDirectory,
                     onBack = { screen = Screen.Home },
                     onSettingsChange = { updated: DesktopSettings ->
                         settings = updated

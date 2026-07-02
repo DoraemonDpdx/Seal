@@ -8,8 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
@@ -67,9 +68,12 @@ fun VideoListScreen(entries: List<HistoryEntry>, onBack: () -> Unit, onDelete: (
                 )
             }
         } else {
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 380.dp),
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(entries, key = { it.id }) { entry ->
                     HistoryCard(entry = entry, onDelete = onDelete, modifier = Modifier.animateItem())
@@ -87,7 +91,7 @@ private fun HistoryCard(
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp),
+        modifier = modifier.fillMaxWidth(),
         onClick = { runCatching { Desktop.getDesktop().open(File(entry.filePath)) } },
     ) {
         Row(

@@ -1,4 +1,5 @@
 import java.net.URI
+import java.util.zip.ZipInputStream
 import org.gradle.internal.os.OperatingSystem
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
@@ -21,10 +22,20 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 }
 
-// Fetches the standalone yt-dlp binary for the host OS so it can be bundled into the installer
-// (see YtDlpDownloader.resolveBundledBinaryPath). Only runs at packaging time, not on every
-// build/run, so it doesn't slow down day-to-day development.
+// Fetches the standalone yt-dlp and ffmpeg binaries for the host OS so they can be bundled into
+// the installer (see YtDlpDownloader). Only runs at packaging time, not on every build/run, so it
+// doesn't slow down day-to-day development.
 val ytDlpBinDir = layout.buildDirectory.dir("ytdlp-bin")
+
+// Compose Desktop only bundles app resources from OS-specific subfolders of appResourcesRootDir
+// ("windows", "macos", "linux", or "common") — files placed directly in the root are ignored at
+// packaging time.
+private fun osResourceDirName(): String =
+    when {
+        OperatingSystem.current().isWindows -> "windows"
+        OperatingSystem.current().isMacOsX -> "macos"
+        else -> "linux"
+    }
 
 val downloadYtDlp by
     tasks.registering {
@@ -41,7 +52,7 @@ val downloadYtDlp by
                     else -> "yt-dlp_linux" to "yt-dlp"
                 }
 
-            val outputDir = outputDirProvider.get().asFile.apply { mkdirs() }
+            val outputDir = outputDirProvider.get().asFile.resolve(osResourceDirName()).apply { mkdirs() }
             val target = outputDir.resolve(targetName)
 
             if (!target.exists()) {
@@ -53,19 +64,70 @@ val downloadYtDlp by
         }
     }
 
+// ffmpeg is needed by yt-dlp for merging separate video+audio streams, audio extraction (-x),
+// and embedding thumbnails/metadata — i.e. most of the download options in the UI. Bundle the
+// static Windows build published by the yt-dlp project so those features work out of the box.
+val downloadFfmpeg by
+    tasks.registering {
+        description = "Downloads a static ffmpeg build (Windows only) to bundle into the installer"
+        onlyIf { OperatingSystem.current().isWindows }
+
+        val outputDirProvider = ytDlpBinDir
+        outputs.dir(outputDirProvider)
+
+        doLast {
+            val outputDir = outputDirProvider.get().asFile.resolve(osResourceDirName()).apply { mkdirs() }
+            val wanted = setOf("ffmpeg.exe", "ffprobe.exe")
+            if (wanted.all { outputDir.resolve(it).exists() }) return@doLast
+
+            val url =
+                "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/" +
+                    "ffmpeg-master-latest-win64-gpl.zip"
+            logger.lifecycle("Downloading ffmpeg from $url")
+            ZipInputStream(URI(url).toURL().openStream().buffered()).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    val name = entry.name.substringAfterLast('/')
+                    if (!entry.isDirectory && name in wanted) {
+                        outputDir.resolve(name).outputStream().use { zip.copyTo(it) }
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        }
+    }
+
 compose.desktop {
     application {
         mainClass = "com.junkfood.seal.desktop.MainKt"
+
+        // Cap the heap and use a modern low-pause collector so the app stays light and snappy.
+        jvmArgs += listOf("-Xms64m", "-Xmx512m", "-XX:+UseZGC")
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Seal"
             packageVersion = "1.0.0"
-            windows { menuGroup = "Seal" }
+            description = "Seal — video/audio downloader powered by yt-dlp"
+            vendor = "Seal"
+
+            windows {
+                menuGroup = "Seal"
+                // Start-menu entry, desktop shortcut, and an install-location chooser in the
+                // installer UI. Per-user install means no UAC prompt and snappier setup.
+                menu = true
+                shortcut = true
+                dirChooser = true
+                perUserInstall = true
+                // Stable upgrade GUID so newer installers cleanly replace older versions.
+                upgradeUuid = "9c3a8f5e-1d4b-4c6a-9b7e-2f0d8a51c3b7"
+            }
 
             appResourcesRootDir.set(ytDlpBinDir)
         }
     }
 }
 
-tasks.matching { it.name.startsWith("package") }.configureEach { dependsOn(downloadYtDlp) }
+tasks.matching { it.name.startsWith("package") }.configureEach {
+    dependsOn(downloadYtDlp, downloadFfmpeg)
+}

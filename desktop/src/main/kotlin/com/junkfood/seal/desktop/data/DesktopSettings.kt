@@ -1,5 +1,6 @@
 package com.junkfood.seal.desktop.data
 
+import com.junkfood.seal.desktop.download.DownloadPreferences
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -7,7 +8,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class DesktopSettings(val downloadDirectory: String = defaultDownloadDirectory()) {
+data class DesktopSettings(
+    val downloadDirectory: String = defaultDownloadDirectory(),
+    /** Default download options; each download dialog starts from these. */
+    val downloadPreferences: DownloadPreferences = DownloadPreferences(),
+    /** Set after the bundled binaries dir has been added to the user PATH (Windows only). */
+    val addedToPath: Boolean = false,
+) {
     companion object {
         fun defaultDownloadDirectory(): String =
             File(System.getProperty("user.home"), "Downloads/Seal").path
