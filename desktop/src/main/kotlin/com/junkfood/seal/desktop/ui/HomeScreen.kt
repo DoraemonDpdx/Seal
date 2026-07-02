@@ -16,6 +16,8 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -40,6 +42,7 @@ import com.junkfood.seal.desktop.data.HistoryEntry
 import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
 import com.junkfood.seal.desktop.download.YtDlpDownloader
+import java.awt.Desktop
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -55,6 +58,7 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val tasks = remember { mutableStateListOf<DownloadTask>() }
     var showInputDialog by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     var nextId by remember { mutableStateOf(0L) }
 
     if (showInputDialog) {
@@ -98,8 +102,30 @@ fun HomeScreen(
                     IconButton(onClick = onOpenVideoList) {
                         Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "Downloads")
                     }
-                    IconButton(onClick = {}) {
-                        Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Open downloads folder") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    val dir = File(settings.downloadDirectory).apply { mkdirs() }
+                                    runCatching { Desktop.getDesktop().open(dir) }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onOpenSettings()
+                                },
+                            )
+                        }
                     }
                 },
             )

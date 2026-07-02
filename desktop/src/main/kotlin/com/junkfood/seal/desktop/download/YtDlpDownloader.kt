@@ -12,10 +12,16 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Drives the `yt-dlp` CLI as a subprocess and turns its `--progress-template` JSON output into
- * [DownloadState] updates. Resolves the binary from PATH for now; bundling/locating a
- * platform-specific binary is future work (see the Windows port plan).
+ * [DownloadState] updates.
+ *
+ * Binary resolution: when packaged, the installer bundles a yt-dlp binary via Compose Desktop's
+ * app-resources mechanism (see `desktop/build.gradle.kts`'s `downloadYtDlp` task), and that
+ * binary is preferred. When running unpackaged (e.g. `./gradlew :desktop:run`), no bundled
+ * resources dir exists, so this falls back to `yt-dlp` on PATH.
  */
-class YtDlpDownloader(private val binaryPath: String = "yt-dlp") {
+class YtDlpDownloader(binaryPath: String? = null) {
+
+    private val resolvedBinaryPath = binaryPath ?: resolveBundledBinaryPath() ?: "yt-dlp"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -25,9 +31,11 @@ class YtDlpDownloader(private val binaryPath: String = "yt-dlp") {
 
                 val command =
                     listOf(
-                        binaryPath,
+                        resolvedBinaryPath,
                         "--newline",
                         "--no-color",
+                        "--concurrent-fragments",
+                        "4",
                         "--progress-template",
                         "download:%(progress)j",
                         "-o",
@@ -39,7 +47,7 @@ class YtDlpDownloader(private val binaryPath: String = "yt-dlp") {
                     try {
                         ProcessBuilder(command).directory(outputDir).start()
                     } catch (e: Exception) {
-                        emit(DownloadState.Error("Failed to launch $binaryPath: ${e.message}"))
+                        emit(DownloadState.Error("Failed to launch $resolvedBinaryPath: ${e.message}"))
                         return@flow
                     }
 
@@ -113,4 +121,18 @@ class YtDlpDownloader(private val binaryPath: String = "yt-dlp") {
 
     private fun kotlinx.serialization.json.JsonObject.doubleOrNull(key: String): Double? =
         this[key]?.jsonPrimitive?.content?.toDoubleOrNull()
+
+    companion object {
+        /**
+         * Compose Desktop sets `compose.application.resources.dir` only for packaged native
+         * distributions (MSI/EXE/DMG/DEB), pointing at the bundled app-resources folder. It is
+         * absent when running via `./gradlew :desktop:run`.
+         */
+        private fun resolveBundledBinaryPath(): String? {
+            val resourcesDir = System.getProperty("compose.application.resources.dir") ?: return null
+            val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
+            val bundled = File(resourcesDir, if (isWindows) "yt-dlp.exe" else "yt-dlp")
+            return bundled.takeIf { it.exists() }?.absolutePath
+        }
+    }
 }
