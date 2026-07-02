@@ -16,6 +16,8 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -27,60 +29,36 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.junkfood.seal.desktop.data.DesktopSettings
-import com.junkfood.seal.desktop.data.HistoryEntry
 import com.junkfood.seal.desktop.download.DownloadState
 import com.junkfood.seal.desktop.download.DownloadTask
-import com.junkfood.seal.desktop.download.YtDlpDownloader
+import java.awt.Desktop
 import java.io.File
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     settings: DesktopSettings,
+    tasks: List<DownloadTask>,
+    onStartDownload: (String) -> Unit,
     onOpenVideoList: () -> Unit,
     onOpenSettings: () -> Unit,
-    onDownloadCompleted: (HistoryEntry) -> Unit,
 ) {
-    val downloader = remember { YtDlpDownloader() }
-    val scope = rememberCoroutineScope()
-    val tasks = remember { mutableStateListOf<DownloadTask>() }
     var showInputDialog by remember { mutableStateOf(false) }
-    var nextId by remember { mutableStateOf(0L) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     if (showInputDialog) {
         InputUrlDialog(
             onDismiss = { showInputDialog = false },
             onConfirm = { url ->
                 showInputDialog = false
-                val taskId = nextId++
-                tasks.add(0, DownloadTask(id = taskId, url = url))
-                scope.launch {
-                    val outputDir = File(settings.downloadDirectory)
-                    downloader.download(url, outputDir).collect { state ->
-                        val index = tasks.indexOfFirst { it.id == taskId }
-                        if (index >= 0) tasks[index] = tasks[index].copy(state = state)
-                        if (state is DownloadState.Completed) {
-                            onDownloadCompleted(
-                                HistoryEntry(
-                                    id = taskId,
-                                    title = state.title ?: url,
-                                    url = url,
-                                    filePath = state.filePath,
-                                )
-                            )
-                        }
-                    }
-                }
+                onStartDownload(url)
             },
         )
     }
@@ -98,8 +76,30 @@ fun HomeScreen(
                     IconButton(onClick = onOpenVideoList) {
                         Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "Downloads")
                     }
-                    IconButton(onClick = {}) {
-                        Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Open downloads folder") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    val dir = File(settings.downloadDirectory).apply { mkdirs() }
+                                    runCatching { Desktop.getDesktop().open(dir) }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onOpenSettings()
+                                },
+                            )
+                        }
                     }
                 },
             )
