@@ -34,14 +34,17 @@ val downloadYtDlp by
         outputs.dir(outputDirProvider)
 
         doLast {
-            val (assetName, targetName) =
+            // Compose Desktop only bundles app resources from OS-specific subfolders of
+            // appResourcesRootDir ("windows", "macos", "linux", or "common") — files placed
+            // directly in the root are ignored at packaging time.
+            val (assetName, osDirName, targetName) =
                 when {
-                    OperatingSystem.current().isWindows -> "yt-dlp.exe" to "yt-dlp.exe"
-                    OperatingSystem.current().isMacOsX -> "yt-dlp_macos" to "yt-dlp"
-                    else -> "yt-dlp_linux" to "yt-dlp"
+                    OperatingSystem.current().isWindows -> Triple("yt-dlp.exe", "windows", "yt-dlp.exe")
+                    OperatingSystem.current().isMacOsX -> Triple("yt-dlp_macos", "macos", "yt-dlp")
+                    else -> Triple("yt-dlp_linux", "linux", "yt-dlp")
                 }
 
-            val outputDir = outputDirProvider.get().asFile.apply { mkdirs() }
+            val outputDir = outputDirProvider.get().asFile.resolve(osDirName).apply { mkdirs() }
             val target = outputDir.resolve(targetName)
 
             if (!target.exists()) {

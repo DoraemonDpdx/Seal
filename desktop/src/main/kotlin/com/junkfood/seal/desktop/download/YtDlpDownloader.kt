@@ -23,7 +23,7 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class YtDlpDownloader(binaryPath: String? = null) {
 
-    private val resolvedBinaryPath = binaryPath ?: resolveBundledBinaryPath() ?: "yt-dlp"
+    private val resolvedBinaryPath = binaryPath ?: resolveBinaryPath() ?: "yt-dlp"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -49,7 +49,14 @@ class YtDlpDownloader(binaryPath: String? = null) {
                     try {
                         ProcessBuilder(command).directory(outputDir).start()
                     } catch (e: Exception) {
-                        emit(DownloadState.Error("Failed to launch $resolvedBinaryPath: ${e.message}"))
+                        val message =
+                            if (resolvedBinaryPath == "yt-dlp") {
+                                "yt-dlp was not found. Install it (e.g. \"winget install yt-dlp\" " +
+                                    "on Windows) or place the yt-dlp executable next to the Seal app."
+                            } else {
+                                "Failed to launch $resolvedBinaryPath: ${e.message}"
+                            }
+                        emit(DownloadState.Error(message))
                         return@flow
                     }
 
@@ -133,15 +140,30 @@ class YtDlpDownloader(binaryPath: String? = null) {
 
     companion object {
         /**
-         * Compose Desktop sets `compose.application.resources.dir` only for packaged native
-         * distributions (MSI/EXE/DMG/DEB), pointing at the bundled app-resources folder. It is
-         * absent when running via `./gradlew :desktop:run`.
+         * Looks for a yt-dlp binary in, by priority:
+         * 1. The bundled app-resources folder — Compose Desktop sets
+         *    `compose.application.resources.dir` only for packaged native distributions
+         *    (MSI/EXE/DMG/DEB); it is absent when running via `./gradlew :desktop:run`.
+         * 2. Next to the launcher executable, so users can drop a yt-dlp binary alongside the app.
+         * 3. The current working directory.
+         *
+         * Returns null when none of those exist, in which case the caller falls back to `yt-dlp`
+         * on PATH.
          */
-        private fun resolveBundledBinaryPath(): String? {
-            val resourcesDir = System.getProperty("compose.application.resources.dir") ?: return null
+        private fun resolveBinaryPath(): String? {
             val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
-            val bundled = File(resourcesDir, if (isWindows) "yt-dlp.exe" else "yt-dlp")
-            return bundled.takeIf { it.exists() }?.absolutePath
+            val binaryName = if (isWindows) "yt-dlp.exe" else "yt-dlp"
+
+            val candidates = buildList {
+                System.getProperty("compose.application.resources.dir")?.let {
+                    add(File(it, binaryName))
+                }
+                ProcessHandle.current().info().command().orElse(null)?.let {
+                    File(it).parentFile?.let { dir -> add(File(dir, binaryName)) }
+                }
+                add(File(System.getProperty("user.dir"), binaryName))
+            }
+            return candidates.firstOrNull { it.isFile }?.absolutePath
         }
     }
 }
